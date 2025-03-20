@@ -1,0 +1,128 @@
+# docker-compose.yml - Docker Compose configuration for Graphic Gram
+
+version: '3.8'
+
+services:
+  # Frontend web application
+  frontend:
+    build: ./frontend
+    container_name: graphic-gram-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:5000/api
+    depends_on:
+      - backend
+    networks:
+      - graphic-gram-network
+
+  # Backend API server
+  backend:
+    build: ./backend
+    container_name: graphic-gram-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/uploads:/app/uploads
+    environment:
+      - NODE_ENV=development
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongo:27017/graphic-gram
+      - JWT_SECRET=your_jwt_secret_key_here
+      - AWS_ACCESS_KEY_ID=your_aws_access_key_id
+      - AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+      - AWS_REGION=us-west-2
+      - AWS_S3_BUCKET=graphic-gram-uploads
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - graphic-gram-network
+
+  # MongoDB database
+  mongo:
+    image: mongo:5.0
+    container_name: graphic-gram-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - graphic-gram-network
+
+  # Redis for caching and session storage
+  redis:
+    image: redis:alpine
+    container_name: graphic-gram-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - graphic-gram-network
+
+  # Media processing service
+  media-service:
+    build: ./media-service
+    container_name: graphic-gram-media
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./media-service:/app
+      - /app/node_modules
+      - ./media-service/temp:/app/temp
+    environment:
+      - NODE_ENV=development
+      - PORT=5001
+      - AWS_ACCESS_KEY_ID=your_aws_access_key_id
+      - AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+      - AWS_REGION=us-west-2
+      - AWS_S3_BUCKET=graphic-gram-uploads
+    depends_on:
+      - backend
+    networks:
+      - graphic-gram-network
+
+  # Nginx for reverse proxy and serving static files
+  nginx:
+    image: nginx:alpine
+    container_name: graphic-gram-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./frontend/build:/usr/share/nginx/html
+      - ./backend/uploads:/usr/share/nginx/uploads
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - graphic-gram-network
+
+  # Certbot for SSL certificates
+  certbot:
+    image: certbot/certbot
+    container_name: graphic-gram-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+networks:
+  graphic-gram-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  redis-data:
